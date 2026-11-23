@@ -3,7 +3,7 @@ import StatusHttp, { classeStatus } from './StatusHttp';
 const hora = (d) => d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 // Painel lateral que mostra cada fetch feito ao servidor e o código HTTP recebido.
-export default function RegistroRequisicoes({ itens, aoLimpar }) {
+export default function RegistroRequisicoes({ itens, aoLimpar, aoDesligar }) {
   const comErro = itens.filter((r) => classeStatus(r.status) !== 'ok').length;
   return (
     <section className="registro" aria-labelledby="titulo-registro">
@@ -14,9 +14,12 @@ export default function RegistroRequisicoes({ itens, aoLimpar }) {
             {itens.length === 0 ? 'Nenhuma ainda' : `${itens.length} ${itens.length === 1 ? 'chamada' : 'chamadas'}${comErro ? `, ${comErro} sem sucesso` : ''}`}
           </p>
         </div>
-        {itens.length > 0 && (
-          <button type="button" className="botao-texto" onClick={aoLimpar}>Limpar</button>
-        )}
+        <div className="registro-acoes">
+          {itens.length > 0 && (
+            <button type="button" className="botao-texto" onClick={aoLimpar}>Limpar</button>
+          )}
+          <button type="button" className="botao-texto" onClick={aoDesligar} title="Sair do modo técnico">Desligar</button>
+        </div>
       </div>
       {itens.length === 0 ? (
         <p className="registro-vazio">Cada chamada ao servidor aparece aqui, com o código HTTP da resposta.</p>

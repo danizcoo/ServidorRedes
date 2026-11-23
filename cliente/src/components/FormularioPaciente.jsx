@@ -9,6 +9,22 @@ import { validarFormulario, mascaraTelefone, mascaraCep, ehBrasil, digitos, busc
 import { useModoTecnico } from '../modo';
 
 const SISTEMAS_TELEFONE = ['phone', 'sms', 'fax', 'pager'];
+
+// Fora do modo técnico, os menus mostram só as opções do dia a dia da recepção.
+// Os demais códigos FHIR continuam aceitos: aparecem se já estiverem no cadastro.
+const COMUNS = {
+  telecom: ['phone', 'email'],
+  telecomUso: ['mobile', 'home', 'work'],
+  enderecoUso: ['home', 'work', 'temp'],
+  parentesco: ['N', 'C', 'E'],
+  estadoCivil: ['S', 'M', 'T', 'L', 'D', 'W'],
+  genero: ['female', 'male', 'other'],
+};
+
+function opcoesVisiveis(lista, chave, valorAtual, tecnico) {
+  if (tecnico) return lista;
+  return lista.filter((o) => COMUNS[chave].includes(o.value) || o.value === valorAtual);
+}
 const TIPO_INPUT = { email: 'email', phone: 'tel', sms: 'tel', fax: 'tel', pager: 'tel', url: 'url' };
 const DICA_TELECOM = { email: 'nome@dominio.com', phone: '(51) 99999-0000', sms: '(51) 99999-0000', url: 'https://' };
 
@@ -42,12 +58,25 @@ function Campo({ rotulo, colunas, largura, erro, dica, children }) {
   );
 }
 
-function BotaoRemover({ aoClicar, rotulo }) {
+const IconeLixeira = () => (
+  <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+    <path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+// Linhas curtas (telefone, idioma) usam só o ícone; blocos (endereço, contato) usam ícone e texto.
+function BotaoRemover({ aoClicar, rotulo, texto }) {
+  if (texto) {
+    return (
+      <button type="button" className="botao-texto botao-texto-perigo botao-remover-texto" onClick={aoClicar}>
+        <IconeLixeira />
+        {texto}
+      </button>
+    );
+  }
   return (
     <button type="button" className="botao-icone botao-remover" onClick={aoClicar} aria-label={rotulo} title={rotulo}>
-      <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-        <path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <IconeLixeira />
     </button>
   );
 }
@@ -77,12 +106,18 @@ export default function FormularioPaciente({ paciente, aoSalvar, aoFechar }) {
   const [salvando, setSalvando] = useState(false);
   const [cep, setCep] = useState({}); // índice do endereço -> { estado, msg }
   const refTopo = useRef(null);
+  // Retrato do formulário ao abrir, para saber se há alterações não salvas.
+  const formInicial = useRef(null);
+  if (formInicial.current === null) formInicial.current = JSON.stringify(form);
+  const jsonInicial = useRef('');
 
   const editando = Boolean(paciente);
   const id = editando ? idPaciente(paciente) : null;
   const erros = useMemo(() => validarFormulario(form), [form]);
   const qtdErros = Object.keys(erros).length;
   const json = useMemo(() => statusJson(textoJson), [textoJson]);
+  const sujo = JSON.stringify(form) !== formInicial.current
+    || (aba === 'json' && textoJson !== jsonInicial.current);
 
   const erroDe = (caminho) => (tentouEnviar || tocados.has(caminho) ? erros[caminho] : undefined);
   const tocar = (e) => {
@@ -126,7 +161,10 @@ export default function FormularioPaciente({ paciente, aoSalvar, aoFechar }) {
     if (nova === aba) return;
     setAvisoAba(null);
     if (nova === 'json') {
-      setTextoJson(JSON.stringify(deFormulario(form, base), null, 2));
+      const texto = JSON.stringify(deFormulario(form, base), null, 2);
+      // Alternar de aba sem mexer no texto não conta como alteração.
+      if (JSON.stringify(form) === formInicial.current) jsonInicial.current = texto;
+      setTextoJson(texto);
       setAba('json');
       return;
     }
@@ -135,7 +173,9 @@ export default function FormularioPaciente({ paciente, aoSalvar, aoFechar }) {
       return;
     }
     setBase(json.valor);
-    setForm(paraFormulario(json.valor));
+    const novoForm = paraFormulario(json.valor);
+    if (textoJson === jsonInicial.current) formInicial.current = JSON.stringify(novoForm);
+    setForm(novoForm);
     setAba('form');
   }
 
@@ -189,6 +229,7 @@ export default function FormularioPaciente({ paciente, aoSalvar, aoFechar }) {
       topo={tecnico ? abas : null}
       aoFechar={aoFechar}
       rodape={rodape}
+      sujo={sujo && !salvando}
     >
       <form id="form-paciente" className="formulario" onSubmit={enviar} onBlur={tocar} noValidate>
         <div ref={refTopo}>
@@ -223,7 +264,7 @@ export default function FormularioPaciente({ paciente, aoSalvar, aoFechar }) {
                   <input name="prefix" value={form.prefix} onChange={(e) => definir('prefix', e.target.value)} placeholder="Dr., Sra." autoComplete="honorific-prefix" />
                 </Campo>
                 <Campo rotulo="Nome" colunas={5} erro={erroDe('given')}>
-                  <input name="given" value={form.given} onChange={(e) => definir('given', e.target.value)} autoComplete="given-name" autoFocus />
+                  <input name="given" value={form.given} onChange={(e) => definir('given', e.target.value)} autoComplete="given-name" data-autofocus />
                 </Campo>
                 <Campo rotulo="Sobrenome" colunas={5}>
                   <input name="family" value={form.family} onChange={(e) => definir('family', e.target.value)} autoComplete="family-name" />
@@ -235,20 +276,32 @@ export default function FormularioPaciente({ paciente, aoSalvar, aoFechar }) {
               <legend>Dados pessoais</legend>
               <div className="grade">
                 <Campo rotulo="Gênero" colunas={4}>
-                  <Selecao valor={form.gender} opcoes={GENEROS} aoMudar={(v) => definir('gender', v)} vazio="Não informado" />
+                  <Selecao
+                    valor={form.gender}
+                    opcoes={opcoesVisiveis(GENEROS, 'genero', form.gender, tecnico)}
+                    aoMudar={(v) => definir('gender', v)}
+                    vazio={form.gender === 'unknown' && !tecnico ? undefined : 'Não informado'}
+                  />
                 </Campo>
                 <Campo rotulo="Data de nascimento" colunas={4} erro={erroDe('birthDate')}>
                   <input name="birthDate" type="date" value={form.birthDate} onChange={(e) => definir('birthDate', e.target.value)} />
                 </Campo>
                 <Campo rotulo="Estado civil" colunas={4}>
-                  <Selecao valor={form.maritalStatus} opcoes={ESTADOS_CIVIS} aoMudar={(v) => definir('maritalStatus', v)} vazio="Não informado" />
+                  <Selecao valor={form.maritalStatus} opcoes={opcoesVisiveis(ESTADOS_CIVIS, 'estadoCivil', form.maritalStatus, tecnico)} aoMudar={(v) => definir('maritalStatus', v)} vazio="Não informado" />
                 </Campo>
               </div>
-              <label className="interruptor">
-                <input type="checkbox" checked={form.active} onChange={(e) => definir('active', e.target.checked)} />
-                <span className="interruptor-trilho" aria-hidden="true" />
-                Cadastro ativo
-              </label>
+              <div className="situacao">
+                <label className="interruptor">
+                  <input type="checkbox" checked={form.active} onChange={(e) => definir('active', e.target.checked)} aria-describedby="dica-ativo" />
+                  <span className="interruptor-trilho" aria-hidden="true" />
+                  Cadastro ativo
+                </label>
+                <p id="dica-ativo" className="campo-dica">
+                  {form.active
+                    ? 'Desligue quando o paciente deixar de ser atendido aqui. O cadastro continua guardado e pode ser reativado.'
+                    : 'Cadastro inativo: continua guardado, mas fica fora da lista de pacientes ativos.'}
+                </p>
+              </div>
             </fieldset>
 
             <fieldset>
@@ -286,7 +339,7 @@ export default function FormularioPaciente({ paciente, aoSalvar, aoFechar }) {
               {form.telecom.map((t, i) => (
                 <div className="linha-repetida" key={i}>
                   <Campo rotulo="Tipo" largura="p">
-                    <Selecao valor={t.system} opcoes={TELECOM_SISTEMAS} aoMudar={(v) => definirItem('telecom', i, 'system', v)} />
+                    <Selecao valor={t.system} opcoes={opcoesVisiveis(TELECOM_SISTEMAS, 'telecom', t.system, tecnico)} aoMudar={(v) => definirItem('telecom', i, 'system', v)} />
                   </Campo>
                   <Campo rotulo="Valor" largura="g" erro={erroDe(`telecom.${i}.value`)}>
                     <input
@@ -298,7 +351,7 @@ export default function FormularioPaciente({ paciente, aoSalvar, aoFechar }) {
                     />
                   </Campo>
                   <Campo rotulo="Uso" largura="p">
-                    <Selecao valor={t.use} opcoes={TELECOM_USOS} aoMudar={(v) => definirItem('telecom', i, 'use', v)} vazio="—" />
+                    <Selecao valor={t.use} opcoes={opcoesVisiveis(TELECOM_USOS, 'telecomUso', t.use, tecnico)} aoMudar={(v) => definirItem('telecom', i, 'use', v)} vazio="—" />
                   </Campo>
                   <BotaoRemover rotulo="Remover telefone ou e-mail" aoClicar={() => remover('telecom', i)} />
                 </div>
@@ -322,7 +375,7 @@ export default function FormularioPaciente({ paciente, aoSalvar, aoFechar }) {
                       />
                     </Campo>
                     <Campo rotulo="Uso" colunas={3}>
-                      <Selecao valor={a.use} opcoes={ENDERECO_USOS} aoMudar={(v) => definirItem('address', i, 'use', v)} vazio="—" />
+                      <Selecao valor={a.use} opcoes={opcoesVisiveis(ENDERECO_USOS, 'enderecoUso', a.use, tecnico)} aoMudar={(v) => definirItem('address', i, 'use', v)} vazio="—" />
                     </Campo>
                     <Campo rotulo="País" colunas={6}>
                       <input value={a.country} onChange={(e) => definirItem('address', i, 'country', e.target.value)} autoComplete="country-name" />
@@ -340,7 +393,7 @@ export default function FormularioPaciente({ paciente, aoSalvar, aoFechar }) {
                       <input value={a.state} onChange={(e) => definirItem('address', i, 'state', e.target.value.toUpperCase())} maxLength={30} autoComplete="address-level1" />
                     </Campo>
                   </div>
-                  <button type="button" className="botao-texto botao-texto-perigo" onClick={() => remover('address', i)}>Remover endereço</button>
+                  <BotaoRemover texto="Remover endereço" aoClicar={() => remover('address', i)} />
                 </div>
               ))}
               <button type="button" className="botao-adicionar" onClick={() => adicionar('address', novoEndereco)}>Adicionar endereço</button>
@@ -353,7 +406,7 @@ export default function FormularioPaciente({ paciente, aoSalvar, aoFechar }) {
                 <div className="bloco-repetido" key={i}>
                   <div className="grade">
                     <Campo rotulo="Relação" colunas={4}>
-                      <Selecao valor={c.relationship} opcoes={PARENTESCOS} aoMudar={(v) => definirItem('contact', i, 'relationship', v)} vazio="Não informada" />
+                      <Selecao valor={c.relationship} opcoes={opcoesVisiveis(PARENTESCOS, 'parentesco', c.relationship, tecnico)} aoMudar={(v) => definirItem('contact', i, 'relationship', v)} vazio="Não informada" />
                     </Campo>
                     <Campo rotulo="Nome" colunas={4} erro={erroDe(`contact.${i}.given`)}>
                       <input name={`contact.${i}.given`} value={c.given} onChange={(e) => definirItem('contact', i, 'given', e.target.value)} />
@@ -368,7 +421,7 @@ export default function FormularioPaciente({ paciente, aoSalvar, aoFechar }) {
                       <input name={`contact.${i}.email`} type="email" value={c.email} onChange={(e) => definirItem('contact', i, 'email', e.target.value)} />
                     </Campo>
                   </div>
-                  <button type="button" className="botao-texto botao-texto-perigo" onClick={() => remover('contact', i)}>Remover contato</button>
+                  <BotaoRemover texto="Remover contato" aoClicar={() => remover('contact', i)} />
                 </div>
               ))}
               <button type="button" className="botao-adicionar" onClick={() => adicionar('contact', novoContato)}>Adicionar contato</button>

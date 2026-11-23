@@ -12,6 +12,7 @@ export default function ErroServidor({ erro }) {
       {detalhes.length > 0 && (
         <ul>{detalhes.map((d, i) => <li key={i}>{d}</li>)}</ul>
       )}
+      {tecnico && erro.tecnico && <p className="nota-tecnica"><code>{erro.tecnico}</code></p>}
     </div>
   );
 }

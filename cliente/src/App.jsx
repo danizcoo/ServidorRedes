@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from './api';
-import { idPaciente, nomeCompleto, idade, telecomPrincipal, cidade, estatisticas, SISTEMA_ID } from './fhir';
+import { idPaciente, nomeCompleto, idade, telecomPrincipal, cidade, estatisticas, formatarData, SISTEMA_ID } from './fhir';
 import { PACIENTES_EXEMPLO } from './exemplos';
 import { ModoTecnico } from './modo';
 import Resumo from './components/Resumo';
@@ -9,16 +9,14 @@ import FormularioPaciente from './components/FormularioPaciente';
 import DetalhesPaciente from './components/DetalhesPaciente';
 import Painel, { BotaoFecharPainel } from './components/Painel';
 import Segmentado from './components/Segmentado';
+import { Avatar } from './components/FichaPaciente';
 import { espera, movimentoReduzido } from './animacao';
 import RegistroRequisicoes from './components/RegistroRequisicoes';
 import StatusHttp from './components/StatusHttp';
 
 const GENEROS_FILTRO = [
   ['todos', 'Todos'], ['female', 'Feminino'], ['male', 'Masculino'], ['other', 'Outro'], ['unknown', 'Não informado'],
-].map(([valor, rotulo]) => ({ valor, rotulo }));
-
-const SITUACOES_FILTRO = [['todos', 'Todas'], ['ativos', 'Ativos'], ['inativos', 'Inativos']]
-  .map(([valor, rotulo]) => ({ valor, rotulo }));
+];
 
 const VISOES = [
   {
@@ -35,15 +33,66 @@ const VISOES = [
 
 const DURACAO_AVISO = { sucesso: 4500, aviso: 6000, erro: 9000 };
 
+// Cadastros sem nome vão para o fim da ordem alfabética.
+function compararNomes(a, b) {
+  const na = nomeCompleto(a);
+  const nb = nomeCompleto(b);
+  if (!na !== !nb) return na ? -1 : 1;
+  return na.localeCompare(nb, 'pt-BR');
+}
+
 const ORDENS = {
-  'nome': { rotulo: 'Nome, de A a Z', cmp: (a, b) => nomeCompleto(a).localeCompare(nomeCompleto(b), 'pt-BR') },
-  'id-desc': { rotulo: 'Mais recentes', cmp: (a, b) => idPaciente(b) - idPaciente(a) },
-  'id': { rotulo: 'Mais antigos', cmp: (a, b) => idPaciente(a) - idPaciente(b) },
-  'idade': { rotulo: 'Mais novos', cmp: (a, b) => (idade(a.birthDate) ?? 999) - (idade(b.birthDate) ?? 999) },
-  'idade-desc': { rotulo: 'Mais velhos', cmp: (a, b) => (idade(b.birthDate) ?? -1) - (idade(a.birthDate) ?? -1) },
+  'nome': { grupo: 'Nome', rotulo: 'Nome, de A a Z', cmp: compararNomes },
+  'id-desc': { grupo: 'Cadastro', rotulo: 'Mais recentes', cmp: (a, b) => idPaciente(b) - idPaciente(a) },
+  'id': { grupo: 'Cadastro', rotulo: 'Mais antigos', cmp: (a, b) => idPaciente(a) - idPaciente(b) },
+  'idade': { grupo: 'Idade', rotulo: 'Mais novos', cmp: (a, b) => (idade(a.birthDate) ?? 999) - (idade(b.birthDate) ?? 999) },
+  'idade-desc': { grupo: 'Idade', rotulo: 'Mais velhos', cmp: (a, b) => (idade(b.birthDate) ?? -1) - (idade(a.birthDate) ?? -1) },
 };
+const GRUPOS_ORDEM = [...new Set(Object.values(ORDENS).map((o) => o.grupo))];
 
 const FILTROS_INICIAIS = { busca: '', genero: 'todos', situacao: 'todos' };
+
+// Busca e filtros ficam na URL (?busca=&genero=&situacao=), para poder
+// recarregar a página ou guardar o link de uma lista filtrada.
+function filtrosDaUrl() {
+  const q = new URLSearchParams(window.location.search);
+  const genero = q.get('genero');
+  const situacao = q.get('situacao');
+  return {
+    busca: q.get('busca') || '',
+    genero: GENEROS_FILTRO.some(([v]) => v === genero) ? genero : 'todos',
+    situacao: ['ativos', 'inativos'].includes(situacao) ? situacao : 'todos',
+  };
+}
+
+function filtrosParaUrl(filtros) {
+  const q = new URLSearchParams(window.location.search);
+  for (const [chave, valor] of Object.entries(filtros)) {
+    if (valor && valor !== FILTROS_INICIAIS[chave]) q.set(chave, valor);
+    else q.delete(chave);
+  }
+  const busca = q.toString();
+  window.history.replaceState(null, '', `${window.location.pathname}${busca ? `?${busca}` : ''}${window.location.hash}`);
+}
+
+// Tela estreita (celular): a tabela não cabe, então a lista fica sempre em fichas.
+function useEstreito(consulta = '(max-width: 640px)') {
+  const [estreito, setEstreito] = useState(() => window.matchMedia?.(consulta).matches ?? false);
+  useEffect(() => {
+    const mq = window.matchMedia?.(consulta);
+    if (!mq) return undefined;
+    const mudar = () => setEstreito(mq.matches);
+    mq.addEventListener('change', mudar);
+    return () => mq.removeEventListener('change', mudar);
+  }, [consulta]);
+  return estreito;
+}
+
+const ICONE_AVISO = {
+  sucesso: <path d="M5 10.5l3.2 3.2L15 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />,
+  aviso: <path d="M10 6v5M10 14h.01" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />,
+  erro: <path d="M7 7l6 6M13 7l-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />,
+};
 
 function lerPreferencia(chave, padrao) {
   try { return localStorage.getItem(chave) ?? padrao; } catch { return padrao; }
@@ -67,7 +116,7 @@ export default function App() {
   const [pacientes, setPacientes] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erroLista, setErroLista] = useState(null);
-  const [filtros, setFiltros] = useState(FILTROS_INICIAIS);
+  const [filtros, setFiltros] = useState(filtrosDaUrl);
   const [ordem, setOrdem] = useState(() => lerPreferencia('crude.ordem', 'nome'));
   const [visao, setVisao] = useState(() => lerPreferencia('crude.visao', 'fichas'));
   const [tecnico, setTecnico] = useState(() => lerPreferencia('crude.tecnico', 'nao') === 'sim');
@@ -80,6 +129,9 @@ export default function App() {
   const [registro, setRegistro] = useState([]);
   const [saindo, setSaindo] = useState(null); // ID do paciente sendo excluído (animação de saída)
   const [destaque, setDestaque] = useState(null); // ID do paciente recém-salvo
+  const [abrindo, setAbrindo] = useState(null); // { id, tipo } enquanto busca o paciente para abrir
+  const [inativando, setInativando] = useState(false);
+  const estreito = useEstreito();
   const timerAviso = useRef([]);
   const refBusca = useRef(null);
 
@@ -90,9 +142,9 @@ export default function App() {
   }, []);
 
   // `tecnico` é o texto extra mostrado só no modo técnico (ex.: o cabeçalho Location).
-  const avisar = useCallback((tipo, texto, status, tecnico) => {
+  const avisar = useCallback((tipo, texto, status, tecnico, duracaoPropria) => {
     timerAviso.current.forEach(clearTimeout);
-    const duracao = DURACAO_AVISO[tipo] || 5000;
+    const duracao = duracaoPropria || DURACAO_AVISO[tipo] || 5000;
     setAviso({ tipo, texto, status, tecnico, duracao, chave: Date.now() });
     timerAviso.current = [setTimeout(fecharAviso, duracao)];
   }, [fecharAviso]);
@@ -107,6 +159,7 @@ export default function App() {
   useEffect(() => salvarPreferencia('crude.ordem', ordem), [ordem]);
   useEffect(() => salvarPreferencia('crude.visao', visao), [visao]);
   useEffect(() => salvarPreferencia('crude.tecnico', tecnico ? 'sim' : 'nao'), [tecnico]);
+  useEffect(() => filtrosParaUrl(filtros), [filtros]);
 
   // Lista: GET /PatientIDs e depois GET /Patient/<ID> para cada ID.
   const carregar = useCallback(async () => {
@@ -127,7 +180,7 @@ export default function App() {
       }
     } catch (e) {
       setPacientes([]);
-      setErroLista(e.message);
+      setErroLista(e);
     } finally {
       setCarregando(false);
     }
@@ -165,13 +218,17 @@ export default function App() {
 
   // Visualizar/editar sempre buscam a versão atual no servidor.
   async function abrir(tipo, id) {
+    if (abrindo) return;
+    setAbrindo({ id, tipo });
     try {
       const paciente = await api.lerPaciente(id);
       setPainel({ tipo, paciente });
     } catch (e) {
       const sumiu = e.status === 404 || e.status === 410;
-      avisar(sumiu ? 'aviso' : 'erro', sumiu ? 'Este paciente não está mais no cadastro. A lista foi atualizada.' : e.message, e.status);
+      avisar(sumiu ? 'aviso' : 'erro', sumiu ? 'Este paciente não está mais no cadastro. A lista foi atualizada.' : e.message, e.status, e.tecnico);
       if (sumiu) carregar();
+    } finally {
+      setAbrindo(null);
     }
   }
 
@@ -180,7 +237,14 @@ export default function App() {
   async function salvar(recurso) {
     if (painel.tipo === 'novo') {
       const r = await api.criarPaciente(recurso);
-      avisar('sucesso', 'Paciente cadastrado.', r.status, `Location: ${r.location || '(não informado)'}`);
+      // O número é o que a recepção informa ao paciente: o aviso fica mais tempo na tela.
+      avisar(
+        'sucesso',
+        r.id ? <>Paciente cadastrado com o <b className="aviso-numero">nº {r.id}</b>.</> : 'Paciente cadastrado.',
+        r.status,
+        `Location: ${r.location || '(não informado)'}`,
+        r.id ? 10000 : undefined,
+      );
       destacar(r.id);
     } else {
       const id = idPaciente(painel.paciente);
@@ -208,11 +272,29 @@ export default function App() {
     } catch (e) {
       setAExcluir(null);
       setPainel(null);
-      avisar('erro', e.message, e.status);
+      avisar('erro', e.message, e.status, e.tecnico);
     } finally {
       setExcluindo(false);
       await carregar();
       setSaindo(null);
+    }
+  }
+
+  // Alternativa à exclusão: PUT com active=false. O cadastro continua guardado.
+  async function inativar() {
+    const id = idPaciente(aExcluir);
+    setInativando(true);
+    try {
+      const r = await api.atualizarPaciente(id, { ...aExcluir, active: false });
+      setAExcluir(null);
+      setPainel(null);
+      avisar('sucesso', `${nomeCompleto(aExcluir) || `Cadastro nº ${id}`} agora está inativo.`, r.status, `PUT /Patient/${id} com active: false`);
+      destacar(id);
+      carregar();
+    } catch (e) {
+      avisar('erro', e.message, e.status, e.tecnico);
+    } finally {
+      setInativando(false);
     }
   }
 
@@ -226,58 +308,62 @@ export default function App() {
       }
       avisar('sucesso', `${criados} pacientes de exemplo cadastrados.`, 201);
     } catch (e) {
-      avisar('erro', `${criados} de ${PACIENTES_EXEMPLO.length} exemplos cadastrados. ${e.message}`, e.status);
+      avisar('erro', `${criados} de ${PACIENTES_EXEMPLO.length} exemplos cadastrados. ${e.message}`, e.status, e.tecnico);
     } finally {
       setProgressoExemplos(null);
       carregar();
     }
   }
 
+  const semCadastros = pacientes.length === 0;
+  const vazio = semCadastros && !carregando && !erroLista;
+  const visaoEfetiva = estreito ? 'fichas' : visao;
+  const ocupadoNaExclusao = excluindo || inativando;
+
   return (
     <ModoTecnico.Provider value={tecnico}>
       <header className="faixa">
         <div className="faixa-conteudo">
           <div className="marca">
-            <svg className="marca-icone" viewBox="0 0 40 40" width="44" height="44" aria-hidden="true">
+            <svg className="marca-icone" viewBox="0 0 40 40" width="40" height="40" aria-hidden="true">
               <rect x="1" y="1" width="38" height="38" rx="10" fill="currentColor" />
               <path d="M16 9h8v7h7v8h-7v7h-8v-7H9v-8h7z" fill="var(--faixa)" />
             </svg>
             <div>
-              <h1>CRUDEPatients</h1>
-              <p>Cadastro de pacientes</p>
+              <h1>Cadastro de pacientes</h1>
+              <p>CRUDEPatients</p>
             </div>
           </div>
           <div className="faixa-acoes">
-            <label className="interruptor interruptor-faixa" title="Mostra as requisições HTTP, os códigos de status e o JSON FHIR">
-              <input type="checkbox" checked={tecnico} onChange={(e) => setTecnico(e.target.checked)} />
-              <span className="interruptor-trilho" aria-hidden="true" />
-              Modo técnico
-            </label>
             {tecnico && (
               <button type="button" className="botao botao-fantasma" onClick={carregarExemplos} disabled={progressoExemplos !== null}>
                 {progressoExemplos && <span className="spinner" aria-hidden="true" />}
                 {progressoExemplos ? `Cadastrando ${progressoExemplos}…` : 'Carregar exemplos'}
               </button>
             )}
-            <button type="button" className="botao botao-destaque" onClick={() => setPainel({ tipo: 'novo' })} title="Atalho: N">
-              Cadastrar paciente
-            </button>
+            {!vazio && (
+              <button type="button" className="botao botao-destaque" onClick={() => setPainel({ tipo: 'novo' })} aria-keyshortcuts="N">
+                Cadastrar paciente
+                <kbd aria-hidden="true">N</kbd>
+              </button>
+            )}
           </div>
         </div>
       </header>
 
-      <main className="conteudo">
-        <Resumo stats={stats} situacao={filtros.situacao} aoFiltrarSituacao={(v) => filtrar('situacao', v)} />
+      <main className={`conteudo${semCadastros ? ' conteudo-sem-cadastros' : ''}`}>
+        {!semCadastros && (
+          <Resumo stats={stats} situacao={filtros.situacao} aoFiltrarSituacao={(v) => filtrar('situacao', v)} />
+        )}
 
         <div className={`area${tecnico ? ' area-tecnica' : ''}`}>
           <section className="pacientes" aria-labelledby="titulo-pacientes">
+            {semCadastros ? <h2 id="titulo-pacientes" className="sr-only">Pacientes</h2> : (
             <div className="barra-ferramentas">
               <div className="ferramentas-linha">
                 <h2 id="titulo-pacientes">
                   Pacientes
-                  <span className="contagem">
-                    {filtrando ? `${visiveis.length} de ${pacientes.length}` : pacientes.length}
-                  </span>
+                  {filtrando && <span className="contagem">{visiveis.length} de {pacientes.length}</span>}
                 </h2>
                 <div className="busca">
                   <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
@@ -287,40 +373,59 @@ export default function App() {
                   <input
                     ref={refBusca}
                     type="search"
-                    placeholder="Buscar por nome, cidade ou telefone"
-                    aria-label="Buscar pacientes por nome, ID, cidade ou telefone"
+                    placeholder="Nome, nº, cidade ou telefone"
+                    aria-label="Buscar pacientes por nome, número do cadastro, cidade ou telefone"
+                    aria-keyshortcuts="/"
                     value={filtros.busca}
                     onChange={(e) => filtrar('busca', e.target.value)}
                   />
                   <kbd aria-hidden="true">/</kbd>
                 </div>
+              </div>
+
+              <div className="ferramentas-linha ferramentas-filtros">
+                <label className="seletor">
+                  <span>Gênero</span>
+                  <select value={filtros.genero} onChange={(e) => filtrar('genero', e.target.value)}>
+                    {GENEROS_FILTRO.map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+                  </select>
+                </label>
+                <label className="seletor">
+                  <span>Ordenar</span>
+                  <select value={ordem} onChange={(e) => setOrdem(e.target.value)}>
+                    {GRUPOS_ORDEM.map((g) => (
+                      <optgroup key={g} label={g}>
+                        {Object.entries(ORDENS).filter(([, o]) => o.grupo === g).map(([v, o]) => (
+                          <option key={v} value={v}>{o.rotulo}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
+                {filtrando && (
+                  <button type="button" className="botao-texto" onClick={() => setFiltros(FILTROS_INICIAIS)}>Limpar filtros</button>
+                )}
+                <span className="espaco" />
                 <button type="button" className="botao botao-icone-texto" onClick={carregar} disabled={carregando} title="Buscar a lista de novo no servidor">
                   <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" className={carregando ? 'girando' : undefined}>
                     <path d="M16 10a6 6 0 1 1-2-4.5M16 3v4h-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                  Atualizar
+                  <span className="rotulo-atualizar">Atualizar</span>
                 </button>
-                <Segmentado className="segmentado-visao" rotulo="Modo de exibição" opcoes={VISOES} valor={visao} aoMudar={setVisao} />
-              </div>
-
-              <div className="ferramentas-linha ferramentas-filtros">
-                <Segmentado rotulo="Filtrar por gênero" opcoes={GENEROS_FILTRO} valor={filtros.genero} aoMudar={(v) => filtrar('genero', v)} />
-                <Segmentado rotulo="Filtrar por situação" opcoes={SITUACOES_FILTRO} valor={filtros.situacao} aoMudar={(v) => filtrar('situacao', v)} />
-                <label className="ordenar">
-                  <span>Ordenar</span>
-                  <select value={ordem} onChange={(e) => setOrdem(e.target.value)}>
-                    {Object.entries(ORDENS).map(([v, o]) => <option key={v} value={v}>{o.rotulo}</option>)}
-                  </select>
-                </label>
+                {!estreito && (
+                  <Segmentado className="segmentado-visao" rotulo="Modo de exibição" opcoes={VISOES} valor={visao} aoMudar={setVisao} />
+                )}
               </div>
             </div>
+            )}
 
             <ListaPacientes
               pacientes={visiveis}
               total={pacientes.length}
-              visao={visao}
+              visao={visaoEfetiva}
               saindo={saindo}
               destaque={destaque}
+              abrindo={abrindo}
               carregando={carregando}
               erro={erroLista}
               filtrando={filtrando}
@@ -330,13 +435,22 @@ export default function App() {
               aoLimparFiltros={() => setFiltros(FILTROS_INICIAIS)}
               aoVer={(id) => abrir('ver', id)}
               aoEditar={(id) => abrir('editar', id)}
-              aoExcluir={(p) => setAExcluir(p)}
             />
           </section>
 
-          {tecnico && <RegistroRequisicoes itens={registro} aoLimpar={() => setRegistro([])} />}
+          {tecnico && <RegistroRequisicoes itens={registro} aoLimpar={() => setRegistro([])} aoDesligar={() => setTecnico(false)} />}
         </div>
       </main>
+
+      <footer className="rodape-app">
+        <p>CRUDEPatients, cliente do servidor PatientsOnFIRE (FHIR v5.0.0).</p>
+        <label className="interruptor interruptor-rodape">
+          <input type="checkbox" checked={tecnico} onChange={(e) => setTecnico(e.target.checked)} aria-describedby="dica-tecnico" />
+          <span className="interruptor-trilho" aria-hidden="true" />
+          Modo técnico
+        </label>
+        <p id="dica-tecnico" className="rodape-dica">Mostra as requisições HTTP, os códigos de status e o JSON FHIR.</p>
+      </footer>
 
       {painel?.tipo === 'ver' && (
         <DetalhesPaciente
@@ -359,20 +473,42 @@ export default function App() {
       {aExcluir && (
         <Painel
           variante="confirmacao"
-          titulo={`Excluir ${nomeCompleto(aExcluir) || 'este paciente'}?`}
-          aoFechar={() => !excluindo && setAExcluir(null)}
+          titulo="Excluir este cadastro?"
+          aoFechar={() => !ocupadoNaExclusao && setAExcluir(null)}
           fecharNoFundo
           rodape={(
             <>
-              <BotaoFecharPainel disabled={excluindo} autoFocus>Cancelar</BotaoFecharPainel>
-              <button type="button" className="botao botao-perigo-cheio" onClick={confirmarExclusao} disabled={excluindo}>
+              <BotaoFecharPainel disabled={ocupadoNaExclusao} data-autofocus>Cancelar</BotaoFecharPainel>
+              <span className="espaco" />
+              {aExcluir.active !== false && (
+                <button type="button" className="botao" onClick={inativar} disabled={ocupadoNaExclusao}>
+                  {inativando && <span className="spinner" aria-hidden="true" />}
+                  {inativando ? 'Inativando…' : 'Inativar'}
+                </button>
+              )}
+              <button type="button" className="botao botao-perigo-cheio" onClick={confirmarExclusao} disabled={ocupadoNaExclusao}>
                 {excluindo && <span className="spinner" aria-hidden="true" />}
-                {excluindo ? 'Excluindo…' : 'Excluir paciente'}
+                {excluindo ? 'Excluindo…' : 'Excluir de vez'}
               </button>
             </>
           )}
         >
-          <p>O cadastro será removido e não poderá ser recuperado.</p>
+          <div className="pulseira-mini">
+            <Avatar paciente={aExcluir} />
+            <div>
+              <p className="pulseira-mini-nome">{nomeCompleto(aExcluir) || 'Paciente sem nome'}</p>
+              <p className="pulseira-mini-linha">
+                {[`Nº ${idPaciente(aExcluir)}`, aExcluir.birthDate && `nasc. ${formatarData(aExcluir.birthDate)}`, cidade(aExcluir)]
+                  .filter(Boolean).join(' · ')}
+              </p>
+            </div>
+          </div>
+          <p>A exclusão apaga o cadastro e não pode ser desfeita.</p>
+          {aExcluir.active !== false && (
+            <p className="confirmacao-alternativa">
+              Se o paciente só deixou de ser atendido, prefira <b>Inativar</b>: o cadastro sai da lista de ativos e continua guardado.
+            </p>
+          )}
           {tecnico && (
             <p className="nota-tecnica">
               <code>DELETE /Patient/{idPaciente(aExcluir)}</code>. Depois disso, uma leitura desse ID retorna 404 ou 410.
@@ -390,6 +526,9 @@ export default function App() {
             style={{ '--duracao': `${aviso.duracao}ms` }}
           >
             <span className="aviso-tempo" aria-hidden="true" />
+            <svg className="aviso-icone" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
+              {ICONE_AVISO[aviso.tipo] || ICONE_AVISO.aviso}
+            </svg>
             {tecnico && aviso.status !== undefined && <StatusHttp status={aviso.status} />}
             <p>
               {aviso.texto}

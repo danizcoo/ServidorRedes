@@ -1,9 +1,31 @@
-// Resumo compacto do cadastro. Ativos/inativos também funcionam como filtro.
-import { useContador } from '../animacao';
+// Resumo do cadastro. Os blocos de ativos e inativos são também o filtro de situação.
 
-function Numero({ valor }) {
-  const n = useContador(valor);
-  return <span className="resumo-numero">{n ?? '—'}</span>;
+function MarcaFiltro({ ligado }) {
+  return (
+    <svg className="resumo-marca" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      {ligado
+        ? <path d="M5 10.5l3.2 3.2L15 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        : <path d="M4 5h12l-4.5 5.5V15l-3 1.5v-6z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />}
+    </svg>
+  );
+}
+
+function Filtro({ valor, rotulo, quantidade, situacao, aoAlternar }) {
+  const ligado = situacao === valor;
+  return (
+    <button
+      type="button"
+      className="resumo-item resumo-filtro"
+      aria-pressed={ligado}
+      onClick={() => aoAlternar(valor)}
+      title={ligado ? 'Mostrar todos os cadastros' : `Mostrar só os cadastros ${valor}`}
+    >
+      <span className="sr-only">Filtrar: </span>
+      <span className="resumo-numero">{quantidade}</span>
+      <span className="resumo-rotulo">{rotulo}</span>
+      <MarcaFiltro ligado={ligado} />
+    </button>
+  );
 }
 
 export default function Resumo({ stats, situacao, aoFiltrarSituacao }) {
@@ -11,20 +33,14 @@ export default function Resumo({ stats, situacao, aoFiltrarSituacao }) {
   return (
     <section className="resumo" aria-label="Resumo do cadastro">
       <div className="resumo-item">
-        <Numero valor={stats.total} />
-        <span className="resumo-rotulo">{stats.total === 1 ? 'paciente cadastrado' : 'pacientes cadastrados'}</span>
+        <span className="resumo-numero">{stats.total}</span>
+        <span className="resumo-rotulo">{stats.total === 1 ? 'paciente' : 'pacientes'}</span>
       </div>
-      <button type="button" className="resumo-item" aria-pressed={situacao === 'ativos'} onClick={() => alternar('ativos')}>
-        <Numero valor={stats.ativos} />
-        <span className="resumo-rotulo">{stats.ativos === 1 ? 'ativo' : 'ativos'}</span>
-      </button>
-      <button type="button" className="resumo-item" aria-pressed={situacao === 'inativos'} onClick={() => alternar('inativos')}>
-        <Numero valor={stats.inativos} />
-        <span className="resumo-rotulo">{stats.inativos === 1 ? 'inativo' : 'inativos'}</span>
-      </button>
-      <div className="resumo-item">
-        <Numero valor={stats.idadeMedia} />
-        <span className="resumo-rotulo">anos, idade média</span>
+      <Filtro valor="ativos" rotulo={stats.ativos === 1 ? 'ativo' : 'ativos'} quantidade={stats.ativos} situacao={situacao} aoAlternar={alternar} />
+      <Filtro valor="inativos" rotulo={stats.inativos === 1 ? 'inativo' : 'inativos'} quantidade={stats.inativos} situacao={situacao} aoAlternar={alternar} />
+      <div className="resumo-item resumo-idade">
+        <span className="resumo-numero">{stats.idadeMedia ?? '—'}</span>
+        <span className="resumo-rotulo">anos de idade média</span>
       </div>
     </section>
   );
