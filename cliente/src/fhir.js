@@ -129,6 +129,10 @@ export function formularioVazio() {
     gender: '',
     birthDate: '',
     maritalStatus: '',
+    falecido: false,
+    dataObito: '',
+    nascimentoMultiplo: '',
+    ordemNascimento: '',
     telecom: [novoTelecom()],
     address: [novoEndereco()],
     contact: [],
@@ -148,6 +152,12 @@ export function paraFormulario(p) {
     gender: p.gender || '',
     birthDate: p.birthDate || '',
     maritalStatus: p.maritalStatus?.coding?.[0]?.code || '',
+    falecido: Boolean(p.deceasedBoolean || p.deceasedDateTime),
+    dataObito: (p.deceasedDateTime || '').slice(0, 10),
+    nascimentoMultiplo: p.multipleBirthInteger !== undefined || p.multipleBirthBoolean === true
+      ? 'sim'
+      : p.multipleBirthBoolean === false ? 'nao' : '',
+    ordemNascimento: p.multipleBirthInteger !== undefined ? String(p.multipleBirthInteger) : '',
     telecom: (p.telecom || []).map((t) => ({
       system: t.system || 'phone',
       value: t.value || '',
@@ -202,6 +212,31 @@ export function deFormulario(form, base = {}) {
 
   definir(r, 'gender', form.gender);
   definir(r, 'birthDate', form.birthDate);
+
+  // deceased[x]: data do óbito (deceasedDateTime) ou só a indicação (deceasedBoolean)
+  delete r.deceasedBoolean;
+  delete r.deceasedDateTime;
+  if (form.falecido) {
+    if (form.dataObito) {
+      const mesmaData = (base.deceasedDateTime || '').slice(0, 10) === form.dataObito;
+      r.deceasedDateTime = mesmaData ? base.deceasedDateTime : form.dataObito;
+    } else {
+      r.deceasedBoolean = true;
+    }
+  } else if (base.deceasedBoolean === false) {
+    r.deceasedBoolean = false;
+  }
+
+  // multipleBirth[x]: ordem de nascimento (multipleBirthInteger) ou só sim/não (multipleBirthBoolean)
+  delete r.multipleBirthBoolean;
+  delete r.multipleBirthInteger;
+  if (form.nascimentoMultiplo === 'sim') {
+    const ordem = Number(form.ordemNascimento);
+    if (form.ordemNascimento !== '' && Number.isInteger(ordem) && ordem > 0) r.multipleBirthInteger = ordem;
+    else r.multipleBirthBoolean = true;
+  } else if (form.nascimentoMultiplo === 'nao') {
+    r.multipleBirthBoolean = false;
+  }
 
   definir(r, 'address', form.address
     .map((a) => ({
@@ -296,4 +331,80 @@ export function enderecoTexto(a) {
   if (a.text) return a.text;
   const local = [a.city, a.state].filter(Boolean).join('/');
   return [...(a.line || []), a.district, local, a.postalCode, a.country].filter(Boolean).join(', ');
+}
+
+// ---------- fichas e resumo ----------
+
+// Cores de pasta por último dígito do ID, como no arquivamento médico
+// "terminal-digit": o dígito final define a cor da aba da pasta.
+export const CORES_PASTA = [
+  '#1F6F62', '#1D5C80', '#6B3F6E', '#8A5A00', '#44546A',
+  '#7A2E3A', '#2F6B2F', '#5B4A9E', '#8C4A1C', '#0F6E78',
+];
+
+export const corPasta = (id) => CORES_PASTA[Math.abs(Number(id) || 0) % 10];
+
+export function iniciais(p) {
+  const n = (p?.name || [])[0];
+  const partes = [...(n?.given || []).slice(0, 1), n?.family].filter(Boolean);
+  if (!partes.length) return '?';
+  return partes.map((s) => s[0]).join('').slice(0, 2).toUpperCase();
+}
+
+export function cidade(p) {
+  const a = (p?.address || [])[0];
+  if (!a) return '';
+  return [a.city, a.state].filter(Boolean).join('/');
+}
+
+export function contatoEmergencia(p) {
+  const c = (p?.contact || [])[0];
+  if (!c) return null;
+  const nome = [...(c.name?.given || []), c.name?.family].filter(Boolean).join(' ');
+  const tel = c.telecom?.find((t) => t.system === 'phone')?.value || c.telecom?.[0]?.value || '';
+  const relacao = c.relationship?.[0]?.text || c.relationship?.[0]?.coding?.[0]?.display || '';
+  return { nome, tel, relacao };
+}
+
+export function idiomas(p) {
+  return (p?.communication || []).map((c) => ({
+    texto: c.language?.text || c.language?.coding?.[0]?.display || c.language?.coding?.[0]?.code || '?',
+    preferido: Boolean(c.preferred),
+  }));
+}
+
+export const falecido = (p) => Boolean(p?.deceasedBoolean || p?.deceasedDateTime);
+
+export function dataObito(p) {
+  return p?.deceasedDateTime ? formatarData(p.deceasedDateTime.slice(0, 10)) : '';
+}
+
+// Idade na data do óbito (ou hoje, se vivo).
+export function idadeExibida(p) {
+  if (!p?.deceasedDateTime) return falecido(p) ? null : idade(p?.birthDate);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(p.birthDate || '');
+  const o = /^(\d{4})-(\d{2})-(\d{2})/.exec(p.deceasedDateTime);
+  if (!m || !o) return null;
+  let anos = Number(o[1]) - Number(m[1]);
+  if (Number(o[2]) < Number(m[2]) || (o[2] === m[2] && Number(o[3]) < Number(m[3]))) anos -= 1;
+  return anos >= 0 ? anos : null;
+}
+
+export function nascimentoMultiplo(p) {
+  if (p?.multipleBirthInteger !== undefined) return `Sim, ${p.multipleBirthInteger}º a nascer`;
+  if (p?.multipleBirthBoolean === true) return 'Sim';
+  if (p?.multipleBirthBoolean === false) return 'Não';
+  return '';
+}
+
+export function estatisticas(pacientes) {
+  const total = pacientes.length;
+  const ativos = pacientes.filter((p) => p.active !== false).length;
+  const idades = pacientes.filter((p) => !falecido(p)).map((p) => idade(p.birthDate)).filter((x) => x !== null);
+  return {
+    total,
+    ativos,
+    inativos: total - ativos,
+    idadeMedia: idades.length ? Math.round(idades.reduce((a, b) => a + b, 0) / idades.length) : null,
+  };
 }

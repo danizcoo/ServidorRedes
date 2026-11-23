@@ -21,11 +21,11 @@ export const STATUS_TEXTO = {
 
 const DESCRICAO_ERRO = {
   0: `Não foi possível conectar ao servidor em ${API_URL}. Confira se ele está rodando.`,
-  400: 'O servidor recusou a requisição por erro de sintaxe ou dados inválidos.',
-  404: 'Paciente não encontrado no servidor.',
-  410: 'Este paciente foi excluído do servidor.',
-  422: 'Os dados não atendem às regras do recurso Patient.',
-  500: 'O servidor encontrou um erro interno.',
+  400: 'Os dados foram recusados pelo servidor. Confira os campos e tente de novo.',
+  404: 'Paciente não encontrado.',
+  410: 'Este paciente foi excluído.',
+  422: 'Os dados não atendem às regras do cadastro.',
+  500: 'O servidor encontrou um erro interno. Tente de novo em instantes.',
 };
 
 export class ErroApi extends Error {
@@ -81,7 +81,8 @@ async function requisicao(metodo, caminho, corpo) {
   const opcoes = { method: metodo, headers: { Accept: 'application/fhir+json, application/json' } };
   if (corpo !== undefined) {
     opcoes.headers['Content-Type'] = 'application/json';
-    opcoes.body = JSON.stringify(corpo);
+    // texto é enviado como está (aba JSON do formulário), inclusive se tiver erro de sintaxe
+    opcoes.body = typeof corpo === 'string' ? corpo : JSON.stringify(corpo);
   }
 
   let resposta;
@@ -124,8 +125,13 @@ export async function lerPaciente(id) {
 
 // POST /Patient -> 201 + Location: /Patient/<ID>
 // O identifier é atribuído pelo servidor, então não é enviado.
+// `recurso` pode ser um objeto ou o texto JSON digitado na aba JSON.
 export async function criarPaciente(recurso) {
-  const { identifier, id, ...corpo } = recurso;
+  let corpo = recurso;
+  if (typeof recurso === 'object') {
+    const { identifier, id, ...resto } = recurso;
+    corpo = resto;
+  }
   const r = await requisicao('POST', '/Patient', corpo);
   const idNovo = Number(/\/Patient\/(\d+)/.exec(r.location || '')?.[1]) || null;
   return { status: r.status, paciente: r.dados, location: r.location, id: idNovo };
