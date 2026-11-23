@@ -1,14 +1,14 @@
 {
   "name": "patientsonfire-servidor",
   "version": "1.0.0",
-  "description": "Servidor PatientsOnFIRE - API REST FHIR v5.0.0 (recurso Patient)",
+  "description": "Servidor PatientsOnFIRE - API REST FHIR v5.0.0 (recurso Patient), apenas com Node.js",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
-  "license": "ISC",
-  "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.19.2"
-  }
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "ISC"
 }

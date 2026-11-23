@@ -4,18 +4,17 @@ Serviço web REST para recursos **Patient** FHIR v5.0.0 e o cliente web **CRUDEP
 
 ```
 .
-├── servidor/   # API REST em Node.js + Express (porta 3000)
+├── servidor/   # API REST em Node.js puro, módulo http (porta 3000)
 ├── cliente/    # interface em HTML, CSS e JavaScript puro (fetch)
 └── relatorio/  # artigo no formato SBC
 ```
 
 ## Como executar
 
-Requer Node.js 20 ou superior para o servidor:
+Requer Node.js 18 ou superior para o servidor. Não há dependências para instalar:
 
 ```bash
 cd servidor
-npm install
 npm start
 ```
 
