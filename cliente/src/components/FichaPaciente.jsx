@@ -11,30 +11,48 @@ export function Avatar({ paciente, tamanho = 'm' }) {
   );
 }
 
-function Dado({ termo, children, classe }) {
+// Campos vazios não aparecem na ficha: o detalhe completo fica na visualização.
+function Dado({ termo, children, classe, titulo }) {
+  if (!children) return null;
   return (
     <div className={classe}>
       <dt>{termo}</dt>
-      <dd>{children || <span className="vazio">—</span>}</dd>
+      <dd title={titulo}>{children}</dd>
     </div>
   );
 }
 
+// Português do Brasil sozinho é o esperado; a ficha só destaca idiomas quando
+// o paciente fala outro (ou precisa de Libras, por exemplo).
+function idiomasRelevantes(langs) {
+  const soPortugues = langs.length === 1 && /portugu[eê]s \(brasil\)|^pt-br$/i.test(langs[0].texto);
+  return soPortugues ? [] : langs;
+}
+
+function BotaoAcao({ ocupado, children, ...resto }) {
+  return (
+    <button type="button" className="botao botao-pequeno" aria-busy={ocupado || undefined} {...resto}>
+      {ocupado && <span className="spinner" aria-hidden="true" />}
+      {children}
+    </button>
+  );
+}
+
 // Ficha no formato de pasta de prontuário: a aba traz o ID e tem a cor do último dígito.
-export default function FichaPaciente({ paciente: p, saindo, destaque, aoVer, aoEditar, aoExcluir }) {
+export default function FichaPaciente({ paciente: p, saindo, destaque, abrindo, aoVer, aoEditar }) {
   const id = idPaciente(p);
   const nome = nomeCompleto(p);
   const anos = idadeExibida(p);
   const obito = falecido(p);
   const tel = telecomPrincipal(p);
   const emerg = contatoEmergencia(p);
-  const langs = idiomas(p);
+  const langs = idiomasRelevantes(idiomas(p));
   const idadeTexto = anos !== null && `${obito ? 'faleceu aos ' : ''}${anos} ${anos === 1 ? 'ano' : 'anos'}`;
   const sub = [p.gender && rotulo(GENEROS, p.gender), idadeTexto].filter(Boolean).join(', ');
 
   return (
     <article
-      className={['ficha', p.active === false && 'ficha-inativa', saindo && 'item-saindo', destaque && 'ficha-destaque'].filter(Boolean).join(' ')}
+      className={['ficha', p.active === false && 'ficha-inativa', saindo && 'item-saindo', destaque && 'ficha-destaque', abrindo && 'ficha-abrindo'].filter(Boolean).join(' ')}
       style={{ '--pasta': corPasta(id) }}
       data-chave={id}
       aria-labelledby={`ficha-${id}`}
@@ -55,15 +73,16 @@ export default function FichaPaciente({ paciente: p, saindo, destaque, aoVer, ao
         </div>
       </header>
 
-      <dl className="ficha-dados">
-        <Dado termo="Nascimento">{formatarData(p.birthDate)}</Dado>
-        <Dado termo="Estado civil">{p.maritalStatus?.text || p.maritalStatus?.coding?.[0]?.display}</Dado>
-        <Dado termo={tel ? rotulo(TELECOM_SISTEMAS, tel.system) : 'Telefone'}>{tel?.value}</Dado>
-        <Dado termo="Cidade">{cidade(p)}</Dado>
-        <Dado termo="Emergência" classe="ficha-emergencia">
-          {emerg && [emerg.nome, emerg.tel].filter(Boolean).join(', ')}
-        </Dado>
-      </dl>
+      {(p.birthDate || tel || cidade(p) || emerg) && (
+        <dl className="ficha-dados">
+          <Dado termo="Nascimento">{formatarData(p.birthDate)}</Dado>
+          <Dado termo={tel ? rotulo(TELECOM_SISTEMAS, tel.system) : 'Telefone'} classe="ficha-telefone" titulo={tel?.value}>{tel?.value}</Dado>
+          <Dado termo="Cidade" classe="ficha-larga">{cidade(p)}</Dado>
+          <Dado termo={emerg?.relacao || 'Contato'} classe="ficha-larga">
+            {emerg && [emerg.nome, emerg.tel].filter(Boolean).join(', ')}
+          </Dado>
+        </dl>
+      )}
 
       {langs.length > 0 && (
         <ul className="idiomas" aria-label="Idiomas">
@@ -76,9 +95,8 @@ export default function FichaPaciente({ paciente: p, saindo, destaque, aoVer, ao
       )}
 
       <footer className="ficha-acoes">
-        <button type="button" className="botao botao-pequeno" onClick={aoVer}>Visualizar</button>
-        <button type="button" className="botao botao-pequeno" onClick={aoEditar}>Editar</button>
-        <button type="button" className="botao botao-pequeno botao-perigo" onClick={aoExcluir}>Excluir</button>
+        <BotaoAcao onClick={aoVer} ocupado={abrindo === 'ver'} disabled={Boolean(abrindo)}>Visualizar</BotaoAcao>
+        <BotaoAcao onClick={aoEditar} ocupado={abrindo === 'editar'} disabled={Boolean(abrindo)}>Editar</BotaoAcao>
       </footer>
     </article>
   );

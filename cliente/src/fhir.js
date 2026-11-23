@@ -13,7 +13,7 @@ export const GENEROS = [
   { value: 'female', label: 'Feminino' },
   { value: 'male', label: 'Masculino' },
   { value: 'other', label: 'Outro' },
-  { value: 'unknown', label: 'Desconhecido' },
+  { value: 'unknown', label: 'Não informado' },
 ];
 
 export const ESTADOS_CIVIS = [

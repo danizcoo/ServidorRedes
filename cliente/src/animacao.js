@@ -1,5 +1,5 @@
 // Utilitários de animação. Tudo respeita a preferência do sistema por menos movimento.
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 
 export function movimentoReduzido() {
   return typeof window !== 'undefined'
@@ -52,34 +52,4 @@ export function useListaAnimada(ref, grupo) {
     });
     posicoes.current = novas;
   });
-}
-
-// Número que "conta" até o valor novo.
-export function useContador(valor, duracao = 600) {
-  const [mostrado, setMostrado] = useState(valor);
-  const atual = useRef(valor);
-
-  useEffect(() => {
-    if (typeof valor !== 'number') { setMostrado(valor); return undefined; }
-    const inicio = typeof atual.current === 'number' ? atual.current : 0;
-    if (movimentoReduzido() || inicio === valor) {
-      atual.current = valor;
-      setMostrado(valor);
-      return undefined;
-    }
-    let quadro;
-    const t0 = performance.now();
-    const passo = (t) => {
-      const p = Math.min(1, (t - t0) / duracao);
-      const suave = 1 - (1 - p) ** 3;
-      const n = Math.round(inicio + (valor - inicio) * suave);
-      atual.current = n;
-      setMostrado(n);
-      if (p < 1) quadro = requestAnimationFrame(passo);
-    };
-    quadro = requestAnimationFrame(passo);
-    return () => cancelAnimationFrame(quadro);
-  }, [valor, duracao]);
-
-  return mostrado;
 }

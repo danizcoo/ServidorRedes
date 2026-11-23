@@ -20,7 +20,7 @@ export const STATUS_TEXTO = {
 };
 
 const DESCRICAO_ERRO = {
-  0: `Não foi possível conectar ao servidor em ${API_URL}. Confira se ele está rodando.`,
+  0: 'Sem conexão com o cadastro. Confira a internet e tente de novo; se continuar, avise o suporte.',
   400: 'Os dados foram recusados pelo servidor. Confira os campos e tente de novo.',
   404: 'Paciente não encontrado.',
   410: 'Este paciente foi excluído.',
@@ -28,13 +28,15 @@ const DESCRICAO_ERRO = {
   500: 'O servidor encontrou um erro interno. Tente de novo em instantes.',
 };
 
+// `tecnico`: detalhe extra mostrado só no modo técnico (ex.: o endereço do servidor).
 export class ErroApi extends Error {
-  constructor(status, descricao, detalhes = []) {
+  constructor(status, descricao, detalhes = [], tecnico = '') {
     super(detalhes.length ? `${descricao} ${detalhes.join(' ')}` : descricao);
     this.name = 'ErroApi';
     this.status = status;
     this.descricao = descricao;
     this.detalhes = detalhes;
+    this.tecnico = tecnico;
   }
 }
 
@@ -90,7 +92,7 @@ async function requisicao(metodo, caminho, corpo) {
     resposta = await fetch(API_URL + caminho, opcoes);
   } catch {
     registrar({ metodo, caminho, status: 0 });
-    throw new ErroApi(0, DESCRICAO_ERRO[0]);
+    throw new ErroApi(0, DESCRICAO_ERRO[0], [], `${metodo} ${API_URL}${caminho} não obteve resposta. Confira se o servidor está rodando.`);
   }
 
   const texto = await resposta.text();

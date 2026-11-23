@@ -7,19 +7,33 @@ import {
   falecido, dataObito, nascimentoMultiplo,
 } from '../fhir';
 
-// Código de barras decorativo e determinístico, derivado do ID (como nas pulseiras hospitalares).
+// Código de barras Code 39 do número do cadastro, como nas pulseiras hospitalares.
+// É um código real: um leitor comum lê "*<número>*" e devolve o número.
+// Cada caractere tem 9 elementos (barra, espaço, barra...), 3 deles largos.
+const CODE39 = {
+  0: 'nnnwwnwnn', 1: 'wnnwnnnnw', 2: 'nnwwnnnnw', 3: 'wnwwnnnnn', 4: 'nnnwwnnnw',
+  5: 'wnnwwnnnn', 6: 'nnwwwnnnn', 7: 'nnnwnnwnw', 8: 'wnnwnnwnn', 9: 'nnwwnnwnn',
+  '*': 'nwnnwnwnn',
+};
+const ESTREITA = 2;
+const LARGA = 5;
+const MARGEM = 10 * ESTREITA;
+
 function CodigoBarras({ id }) {
-  const semente = String(id).padStart(4, '0') + 'PATIENT';
+  if (!Number.isInteger(id)) return null;
   const barras = [];
-  let x = 0;
-  for (let i = 0; i < 28; i += 1) {
-    const c = semente.charCodeAt(i % semente.length) + i * 7;
-    const largura = 1 + (c % 3);
-    if (i % 2 === 0) barras.push(<rect key={i} x={x} y="0" width={largura} height="28" />);
-    x += largura + 1;
-  }
+  let x = MARGEM;
+  `*${id}*`.split('').forEach((c, n) => {
+    CODE39[c].split('').forEach((el, i) => {
+      const largura = el === 'w' ? LARGA : ESTREITA;
+      if (i % 2 === 0) barras.push(<rect key={`${n}-${i}`} x={x} y="0" width={largura} height="32" />);
+      x += largura;
+    });
+    x += ESTREITA; // espaço entre caracteres
+  });
+  const total = x - ESTREITA + MARGEM;
   return (
-    <svg className="codigo-barras" viewBox={`0 0 ${x} 28`} width={x * 1.4} height="28" aria-hidden="true" preserveAspectRatio="none">
+    <svg className="codigo-barras" viewBox={`0 0 ${total} 32`} width={total} height="32" role="img" aria-label={`Código de barras do cadastro nº ${id}`} shapeRendering="crispEdges">
       {barras}
     </svg>
   );
@@ -92,8 +106,8 @@ export default function DetalhesPaciente({ paciente: p, aoFechar, aoEditar, aoEx
         <Secao titulo="Dados pessoais">
           <Item termo="Gênero">{rotulo(GENEROS, p.gender)}</Item>
           <Item termo="Nascimento">{p.birthDate && `${formatarData(p.birthDate)}${anos !== null && !obito ? ` (${anos} anos)` : ''}`}</Item>
-          <Item termo="Óbito">{obito ? (dataObito(p) ? `Sim, em ${dataObito(p)}${anos !== null ? ` (${anos} anos)` : ''}` : 'Sim') : 'Não'}</Item>
-          <Item termo="Nascimento múltiplo">{nascimentoMultiplo(p)}</Item>
+          {obito && <Item termo="Óbito">{dataObito(p) ? `Sim, em ${dataObito(p)}${anos !== null ? ` (${anos} anos)` : ''}` : 'Sim'}</Item>}
+          {nascimentoMultiplo(p).startsWith('Sim') && <Item termo="Nascimento múltiplo">{nascimentoMultiplo(p)}</Item>}
           <Item termo="Estado civil">{p.maritalStatus?.text || p.maritalStatus?.coding?.[0]?.display}</Item>
           <Item termo="Situação">{p.active === false ? 'Inativo' : 'Ativo'}</Item>
           <Item termo="Idiomas">
