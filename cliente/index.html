@@ -1,17 +1,145 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="CRUDEPatients: cadastro de pacientes FHIR v5.0.0 (recurso Patient) para o servidor PatientsOnFIRE." />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231F6F62'/%3E%3Cpath d='M13 7h6v6h6v6h-6v6h-6v-6H7v-6h6z' fill='%23F2F5F4'/%3E%3C/svg%3E" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet" />
-    <title>CRUDEPatients</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CRUDEPatients</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>CRUDEPatients</h1>
+    <p>Cliente do servidor PatientsOnFIRE (FHIR v5.0.0, recurso Patient) em <code id="endereco-api"></code></p>
+  </header>
+
+  <div id="mensagem" class="mensagem" role="status" hidden></div>
+
+  <main>
+    <!-- Lista de pacientes -->
+    <section class="cartao">
+      <div class="barra">
+        <h2>Pacientes</h2>
+        <div class="acoes">
+          <button type="button" id="btn-atualizar">Atualizar</button>
+          <button type="button" id="btn-novo" class="primario">Novo paciente</button>
+        </div>
+      </div>
+
+      <form id="form-busca" class="busca">
+        <label for="busca-id">Buscar por ID</label>
+        <input type="number" id="busca-id" min="1" required placeholder="Ex.: 3">
+        <button type="submit">Buscar</button>
+      </form>
+
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Nome</th>
+            <th>Gênero</th>
+            <th>Nascimento</th>
+            <th>Telefone</th>
+            <th>Cidade</th>
+            <th>Situação</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tabela-pacientes"></tbody>
+      </table>
+      <p id="lista-vazia" class="vazio" hidden>Nenhum paciente cadastrado.</p>
+    </section>
+
+    <!-- Painel lateral: detalhes ou formulário -->
+    <aside>
+      <section id="painel-detalhes" class="cartao" hidden>
+        <div class="barra">
+          <h2 id="detalhes-titulo">Paciente</h2>
+          <button type="button" class="fechar" data-fechar aria-label="Fechar">×</button>
+        </div>
+        <dl id="detalhes-dados"></dl>
+        <details>
+          <summary>JSON FHIR</summary>
+          <pre id="detalhes-json"></pre>
+        </details>
+        <div class="acoes">
+          <button type="button" id="btn-editar">Editar</button>
+          <button type="button" id="btn-excluir" class="perigo">Excluir</button>
+        </div>
+      </section>
+
+      <section id="painel-form" class="cartao" hidden>
+        <div class="barra">
+          <h2 id="form-titulo">Novo paciente</h2>
+          <button type="button" class="fechar" data-fechar aria-label="Fechar">×</button>
+        </div>
+
+        <form id="form-paciente">
+          <div class="linha">
+            <label>Nome
+              <input name="given" required>
+            </label>
+            <label>Sobrenome
+              <input name="family">
+            </label>
+          </div>
+          <div class="linha">
+            <label>Gênero
+              <select name="gender">
+                <option value="">—</option>
+                <option value="female">Feminino</option>
+                <option value="male">Masculino</option>
+                <option value="other">Outro</option>
+                <option value="unknown">Não informado</option>
+              </select>
+            </label>
+            <label>Data de nascimento
+              <input type="date" name="birthDate" id="campo-nascimento">
+            </label>
+          </div>
+          <div class="linha">
+            <label>Telefone
+              <input type="tel" name="phone" placeholder="(51) 99999-0000">
+            </label>
+            <label>E-mail
+              <input type="email" name="email" placeholder="nome@exemplo.com">
+            </label>
+          </div>
+          <label>Endereço
+            <input name="line" placeholder="Rua, número">
+          </label>
+          <div class="linha">
+            <label>Cidade
+              <input name="city">
+            </label>
+            <label class="curto">UF
+              <input name="state" maxlength="2">
+            </label>
+            <label class="curto">CEP
+              <input name="postalCode" placeholder="00000-000">
+            </label>
+          </div>
+          <label class="check">
+            <input type="checkbox" name="active" checked> Cadastro ativo
+          </label>
+
+          <div class="acoes">
+            <button type="button" data-fechar>Cancelar</button>
+            <button type="submit" class="primario" id="btn-salvar">Salvar</button>
+          </div>
+        </form>
+      </section>
+    </aside>
+  </main>
+
+  <!-- Registro das requisições HTTP -->
+  <section class="cartao registro">
+    <div class="barra">
+      <h2>Requisições</h2>
+      <button type="button" id="btn-limpar-registro">Limpar</button>
+    </div>
+    <ol id="registro"></ol>
+  </section>
+
+  <script src="script.js"></script>
+</body>
 </html>
