@@ -1,0 +1,4 @@
+node_modules/
+servidor/data/
+dist/
+.env.local
