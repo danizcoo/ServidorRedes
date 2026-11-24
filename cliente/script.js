@@ -69,9 +69,11 @@ function mostrarMensagem(texto, status) {
   caixa.hidden = false;
 }
 
-// Mensagem de erro: usa o texto que o servidor mandou em { erro } ou, se não houver, o padrão do código
+// Mensagem de erro: usa o texto que o servidor mandou no OperationOutcome
+// (issue[0].diagnostics) ou, se não houver, o padrão do código
 function mostrarErro(r) {
-  const texto = (r.dados && r.dados.erro) || MENSAGENS[r.status] || 'Erro inesperado.';
+  const issue = r.dados && Array.isArray(r.dados.issue) ? r.dados.issue[0] : null;
+  const texto = (issue && issue.diagnostics) || MENSAGENS[r.status] || 'Erro inesperado.';
   mostrarMensagem(texto, r.status);
 }
 

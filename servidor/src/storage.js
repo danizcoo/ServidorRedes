@@ -4,11 +4,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const { montarIdentifier } = require('./util/identificador');
 
 const ARQUIVO = path.join(__dirname, '..', 'data', 'patients.json');
 
 let pacientes = new Map(); // id (number) -> recurso Patient
 let proximoId = 1;
+let excluidos = new Set(); // IDs já excluídos (permite ao Read responder 410 Gone)
 
 // ---------- persistência ----------
 function carregar() {
@@ -17,6 +19,7 @@ function carregar() {
       const dados = JSON.parse(fs.readFileSync(ARQUIVO, 'utf8'));
       pacientes = new Map(dados.pacientes.map((p) => [obterId(p), p]));
       proximoId = dados.proximoId || 1;
+      excluidos = new Set(dados.excluidos || []);
     }
   } catch (err) {
     console.error('Aviso: não foi possível ler', ARQUIVO, '- iniciando vazio.', err.message);
@@ -24,16 +27,13 @@ function carregar() {
 }
 
 function salvar() {
-  const dados = { proximoId, pacientes: Array.from(pacientes.values()) };
+  const dados = { proximoId, excluidos: Array.from(excluidos), pacientes: Array.from(pacientes.values()) };
   fs.mkdirSync(path.dirname(ARQUIVO), { recursive: true });
   fs.writeFileSync(ARQUIVO, JSON.stringify(dados, null, 2), 'utf8');
 }
 
 // ---------- identifier ----------
-// Monta o elemento identifier do recurso a partir do ID numérico.
-function montarIdentifier(id) {
-  return [{ system: 'urn:patientsonfire:id', value: String(id) }];
-}
+// montarIdentifier vem de util/identificador.js (regra única, compartilhada com as rotas).
 
 // Extrai o ID numérico do elemento identifier (retorna null se inválido).
 function obterId(recurso) {
@@ -66,8 +66,16 @@ function atualizar(id, recurso) {
 
 function excluir(id) {
   const existia = pacientes.delete(id);
-  if (existia) salvar();
+  if (existia) {
+    excluidos.add(id);
+    salvar();
+  }
   return existia;
+}
+
+// true se o ID já existiu e foi excluído (o Read responde 410 em vez de 404).
+function foiExcluido(id) {
+  return excluidos.has(id);
 }
 
 function listarIDs() {
@@ -76,4 +84,4 @@ function listarIDs() {
 
 carregar();
 
-module.exports = { criar, ler, atualizar, excluir, listarIDs, obterId };
+module.exports = { criar, ler, atualizar, excluir, listarIDs, foiExcluido, obterId };
